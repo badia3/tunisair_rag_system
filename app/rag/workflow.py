@@ -8,6 +8,7 @@ from langgraph.graph import StateGraph, START, END
 from app.core.config import get_settings
 from app.rag.state import AgentState, RouteDecision, EvidenceGrade
 from app.rag.vectorstore import get_retriever
+from app.services.airports import AIRPORTS
 from app.services.tunisair import build_booking_url
 
 logger = logging.getLogger(__name__)
@@ -29,27 +30,10 @@ def add_trace(state: AgentState, message: str):
     return [*state.get("trace", []), message]
 
 
-_LOCATION_ALIASES = {
-    "tunis": "TUN",
-    "tunis carthage": "TUN",
-    "djerba": "DJE",
-    "monastir": "MIR",
-    "paris": "PAR",
-    "lyon": "LYS",
-    "marseille": "MRS",
-    "barcelone": "BCN",
-    "barcelona": "BCN",
-    "montreal": "YUL",
-}
-_LOCATION_NAMES = {
-    "TUN": "Tunis",
-    "DJE": "Djerba",
-    "MIR": "Monastir",
-    "PAR": "Paris",
-    "LYS": "Lyon",
-    "MRS": "Marseille",
-    "BCN": "Barcelone",
-    "YUL": "Montréal",
+_OFFICIAL_PAGE_URLS = {
+    "home": "https://www.tunisair.com/fr",
+    "offers": "https://www.tunisair.com/fr/offres",
+    "flight_status": "https://www.tunisair.com/fr/vols-en-cours",
 }
 _MONTH_NUMBERS = {
     "janvier": 1, "janv": 1, "january": 1,
@@ -72,6 +56,20 @@ def _normalize_text(text: str) -> str:
         char for char in unicodedata.normalize("NFKD", text.casefold())
         if not unicodedata.combining(char)
     )
+
+
+_LOCATION_ALIASES = {
+    _normalize_text(city): code
+    for code, city in AIRPORTS
+}
+_LOCATION_ALIASES.update({
+    "tunis carthage": "TUN",
+    "barcelona": "BCN",
+    "montreal": "YUL",
+    "cairo": "CAI",
+    "zurich": "ZRH",
+})
+_LOCATION_NAMES = dict(AIRPORTS)
 
 
 def _extract_flight_search(question: str) -> dict[str, str | None]:
@@ -128,7 +126,11 @@ def _is_flight_search_request(question: str) -> bool:
     fare_request = re.search(r"\b(prix|tarif|tarifs|cout|couts|combien|price|prices|fare|fares|cost)\b", normalized)
     flight_topic = re.search(r"\b(vol|vols|billet|billets|avion|flight|flights|itineraire)\b", normalized)
     booking_action = re.search(r"\b(reserver|reservation|recherche|disponibilite|horaire|horaires)\b", normalized)
-    return bool(flight_topic and (fare_request or booking_action))
+    company_topic = re.search(r"\b(tunisair|compagnie|company|airline)\b", normalized)
+    return bool(
+        (fare_request and (flight_topic or company_topic))
+        or (flight_topic and booking_action)
+    )
 
 
 def _is_french_question(question: str) -> bool:
@@ -136,8 +138,66 @@ def _is_french_question(question: str) -> bool:
     return bool(re.search(r"\b(quel|quelle|quels|quelles|prix|tarif|vol|billet|combien|depart|retour|voyage)\b", normalized))
 
 
+def _requested_official_link(question: str) -> tuple[str, str] | None:
+    normalized = _normalize_text(question)
+    if not re.search(r"\b(lien|url|adresse|link|website)\b", normalized):
+        return None
+
+    if re.search(r"\b(offre|offres|promo|promotions)\b", normalized):
+        return "Nos offres", _OFFICIAL_PAGE_URLS["offers"]
+    if re.search(r"\b(vols en cours|statut|statuts|retard|flight status)\b", normalized):
+        return "Vols en cours", _OFFICIAL_PAGE_URLS["flight_status"]
+    return "Planifiez votre prochain vol", _OFFICIAL_PAGE_URLS["home"]
+
+
+def _is_live_flight_status_request(question: str) -> bool:
+    normalized = _normalize_text(question)
+    flight_topic = re.search(r"\b(vol|vols|flight|flights)\b", normalized)
+    live_status = re.search(
+        r"\b(vols en cours|statut|statuts|retard|retards|en temps reel|live|real time)\b",
+        normalized,
+    )
+    return bool(flight_topic and live_status)
+
+
 def route_question(state: AgentState):
     question = state["question"]
+    requested_link = _requested_official_link(question)
+    if requested_link:
+        title, url = requested_link
+        answer = (
+            f"Voici le lien officiel « {title} » : {url}"
+            if _is_french_question(question)
+            else f"Here is the official “{title}” page: {url}"
+        )
+        return {
+            "source_used": "official_page_link",
+            "citations": [{"title": title, "url": url, "type": "website"}],
+            "trace": add_trace(state, "Router → OFFICIAL PAGE LINK"),
+            "answer": answer,
+        }
+
+    if _is_live_flight_status_request(question):
+        url = _OFFICIAL_PAGE_URLS["flight_status"]
+        answer = (
+            "Les statuts de vol changent rapidement et les données synchronisées "
+            "périodiquement peuvent ne plus être à jour. Consultez la page officielle "
+            f"« Vols en cours » pour le statut actuel : {url}"
+            if _is_french_question(question)
+            else "Flight statuses change quickly, so periodically synchronized data may "
+            f"be outdated. Check the official “Flights in progress” page for current status: {url}"
+        )
+        return {
+            "source_used": "live_flight_status",
+            "citations": [{
+                "title": "Vols en cours",
+                "url": url,
+                "type": "website",
+            }],
+            "trace": add_trace(state, "Router → LIVE FLIGHT STATUS (official page)"),
+            "answer": answer,
+        }
+
     if _is_flight_search_request(question):
         flight_search = _extract_flight_search(question)
         return {
@@ -148,9 +208,10 @@ def route_question(state: AgentState):
 
     router = llm().with_structured_output(RouteDecision, method="function_calling")
     decision = router.invoke(f"""
-You route messages for an assistant limited to two official Tunisair pages:
-https://www.tunisair.com/fr and https://flights.tunisair.com/fr.
-Use kb for Tunisair company information covered by those indexed landing pages.
+You route messages for an assistant limited to these official Tunisair pages:
+https://www.tunisair.com/fr, https://www.tunisair.com/fr/offres,
+https://www.tunisair.com/fr/vols-en-cours, and https://flights.tunisair.com/fr.
+Use kb for Tunisair company information covered by those indexed pages.
 Use booking only when the user requests a timetable, dates, fares, or availability search.
 For booking, extract origin_code and destination_code only when the user explicitly gives
 three-letter location codes, and extract departure_date and return_date as YYYY-MM-DD only
@@ -172,14 +233,18 @@ Return a valid route of kb, booking, or direct.
         "trace": add_trace(state, f"Router → {decision.route.upper()}"),
     }
 
-def route_after_router(state: AgentState) -> Literal["retrieve_kb", "create_booking_link", "direct_answer"]:
+def route_after_router(
+    state: AgentState,
+) -> Literal["retrieve_kb", "create_booking_link", "direct_answer", "return_router_answer"]:
     if state["source_used"] == "booking":
         return "create_booking_link"
+    if state["source_used"] in {"official_page_link", "live_flight_status"}:
+        return "return_router_answer"
     return "retrieve_kb" if state["source_used"] == "kb" else "direct_answer"
 
 def retrieve_kb(state: AgentState):
     docs = get_retriever().invoke(state["current_query"])
-    return {"kb_docs": docs, "trace": add_trace(state, f"Private KB retrieval → {len(docs)} chunks")}
+    return {"kb_docs": docs, "trace": add_trace(state, f"Tunisair page retrieval → {len(docs)} chunks")}
 
 def grade_kb(state: AgentState):
     grader = llm().with_structured_output(EvidenceGrade, method="function_calling")
@@ -190,7 +255,7 @@ def grade_kb(state: AgentState):
     grade = grader.invoke(f"""
 You grade evidence for a Tunisair information assistant.
 Question: {state['question']}
-Evidence from the two approved Tunisair pages:\n{context}
+Evidence from the approved Tunisair pages:\n{context}
 Return good only if the evidence is sufficient to answer confidently and specifically.
 Otherwise return weak. JSON: {{"grade":"good"}} or {{"grade":"weak"}}.
 """)
@@ -205,8 +270,8 @@ def after_kb(state: AgentState) -> Literal["generate_from_kb", "rewrite_query", 
 
 def rewrite_query(state: AgentState):
     rewritten = llm().invoke(f"""
-Rewrite this Tunisair company-information question for better retrieval from the two
-approved official landing pages. Preserve intent, do not add unsupported facts, return
+Rewrite this Tunisair company-information question for better retrieval from the approved
+official pages. Preserve intent, do not add unsupported facts, return
 only the rewritten query.
 Question: {state['question']}
 """).content.strip()
@@ -331,6 +396,14 @@ def direct_answer(state: AgentState):
     answer = llm().invoke(f"Respond briefly and naturally to: {state['question']}").content
     return {"answer": answer, "source_used": "direct", "trace": add_trace(state, "Direct response → no retrieval")}
 
+
+def return_router_answer(state: AgentState):
+    return {
+        "answer": state["answer"],
+        "trace": add_trace(state, "Response → official page link"),
+    }
+
+
 def insufficient(state: AgentState):
     return {
         "answer": "I couldn't find enough information on the approved Tunisair pages to answer confidently. Please check Tunisair's official website or contact Tunisair.",
@@ -348,6 +421,7 @@ def build_graph():
         "generate_from_kb": generate_from_kb,
         "create_booking_link": create_booking_link,
         "direct_answer": direct_answer,
+        "return_router_answer": return_router_answer,
         "insufficient": insufficient,
     }.items():
         graph.add_node(name, fn)
@@ -357,6 +431,7 @@ def build_graph():
         "retrieve_kb": "retrieve_kb",
         "create_booking_link": "create_booking_link",
         "direct_answer": "direct_answer",
+        "return_router_answer": "return_router_answer",
     })
     graph.add_edge("retrieve_kb", "grade_kb")
     graph.add_conditional_edges("grade_kb", after_kb, {
@@ -368,6 +443,7 @@ def build_graph():
     graph.add_edge("generate_from_kb", END)
     graph.add_edge("create_booking_link", END)
     graph.add_edge("direct_answer", END)
+    graph.add_edge("return_router_answer", END)
     graph.add_edge("insufficient", END)
     return graph.compile()
 

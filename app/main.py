@@ -7,6 +7,7 @@ from app.api.routes import router
 from app.core.config import get_settings, BASE_DIR
 from app.core.logging import configure_logging
 from app.services.audit import init_db
+from app.services.airports import AIRPORTS
 
 
 configure_logging()
@@ -23,4 +24,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "app_name": settings.app_name})
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "app_name": settings.app_name, "airports": AIRPORTS},
+    )

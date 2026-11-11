@@ -52,14 +52,9 @@
             <span>Départ</span>
             <span class="field-control"><span class="field-icon" aria-hidden="true">⌖</span>
               <select id="originCode" required aria-label="Ville de départ">
-                <option value="TUN">Tunis (TUN)</option>
-                <option value="DJE">Djerba (DJE)</option>
-                <option value="MIR">Monastir (MIR)</option>
-                <option value="PAR">Paris (PAR)</option>
-                <option value="LYS">Lyon (LYS)</option>
-                <option value="MRS">Marseille (MRS)</option>
-                <option value="BCN">Barcelone (BCN)</option>
-                <option value="YUL">Montréal (YUL)</option>
+                {% for code, city in airports %}
+                <option value="{{ code }}" {% if code == "TUN" %}selected{% endif %}>{{ city }} ({{ code }})</option>
+                {% endfor %}
               </select>
             </span>
           </label>
@@ -68,14 +63,9 @@
             <span>Destination</span>
             <span class="field-control"><span class="field-icon" aria-hidden="true">⌖</span>
               <select id="destinationCode" required aria-label="Ville de destination">
-                <option value="PAR">Paris (PAR)</option>
-                <option value="TUN">Tunis (TUN)</option>
-                <option value="DJE">Djerba (DJE)</option>
-                <option value="MIR">Monastir (MIR)</option>
-                <option value="LYS">Lyon (LYS)</option>
-                <option value="MRS">Marseille (MRS)</option>
-                <option value="BCN">Barcelone (BCN)</option>
-                <option value="YUL">Montréal (YUL)</option>
+                {% for code, city in airports %}
+                <option value="{{ code }}" {% if code == "PAR" %}selected{% endif %}>{{ city }} ({{ code }})</option>
+                {% endfor %}
               </select>
             </span>
           </label>

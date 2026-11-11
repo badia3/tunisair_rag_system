@@ -218,3 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 data/tunisair_sync_manifest.json
+data/tunisair_content.db
+data/tunisair_content.db-shm
+data/tunisair_content.db-wal
+data/tunisair_sync.log

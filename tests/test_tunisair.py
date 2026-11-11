@@ -1,6 +1,8 @@
 import json
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from email.message import Message
 from pathlib import Path
 from urllib.error import HTTPError
@@ -13,6 +15,7 @@ from langchain_core.documents import Document
 from app.rag import vectorstore
 from app.rag import workflow
 from app.rag.state import EvidenceGrade, RouteDecision
+from app.services.airports import AIRPORTS
 from app.services import tunisair_sync
 from app.services import tunisair as tunisair_service
 from app.services.tunisair import (
@@ -26,7 +29,7 @@ from app.services.tunisair import (
 
 
 class TunisairAllowlistTests(unittest.TestCase):
-    def test_only_the_two_explicit_landing_pages_are_fetched(self):
+    def test_only_the_four_explicit_landing_pages_are_fetched(self):
         crawler = TunisairCrawler()
         robots = type("AllowAll", (), {"can_fetch": lambda *_: True})()
         headers = Message()
@@ -37,16 +40,22 @@ class TunisairAllowlistTests(unittest.TestCase):
             patch.object(crawler, "_robots_for", return_value=robots),
             patch.object(crawler, "_fetch", return_value=(*response, ALLOWED_PAGE_URLS[0])) as fetch,
         ):
-            # Return the URL matching each fixed allowlisted page in order.
             fetch.side_effect = [
-                (*response, ALLOWED_PAGE_URLS[0]),
-                (*response, ALLOWED_PAGE_URLS[1]),
+                (*response, url)
+                for url in ALLOWED_PAGE_URLS
             ]
             pages = crawler.fetch_allowed_pages()
 
         self.assertEqual(list(ALLOWED_PAGE_URLS), [page.url for page in pages])
-        self.assertEqual(2, fetch.call_count)
+        self.assertEqual(4, fetch.call_count)
         self.assertEqual(list(ALLOWED_PAGE_URLS), [call.args[0] for call in fetch.call_args_list])
+
+    def test_crawler_rejects_non_allowlisted_routes_without_requesting_them(self):
+        crawler = TunisairCrawler()
+        with patch.object(crawler, "_open") as open_page:
+            with self.assertRaises(ValueError):
+                crawler._fetch("https://www.tunisair.com/fr/offres/some-offer")
+        open_page.assert_not_called()
 
     def test_challenge_or_forbidden_page_stops_without_retrying(self):
         crawler = TunisairCrawler()
@@ -123,6 +132,34 @@ class TunisairAllowlistTests(unittest.TestCase):
 
 
 class WorkflowStructuredOutputTests(unittest.TestCase):
+    def test_flight_form_airports_are_unique_and_available_to_route_parser(self):
+        codes = [code for code, _ in AIRPORTS]
+
+        self.assertEqual(49, len(codes))
+        self.assertEqual(len(codes), len(set(codes)))
+        self.assertEqual("ABJ", workflow._extract_flight_search("Tunis to Abidjan")["destination_code"])
+        self.assertEqual("GVA", workflow._extract_flight_search("Montréal to Genève")["destination_code"])
+
+    def test_user_link_request_returns_the_offers_page_url(self):
+        result = workflow.ask("Donne-moi le lien des offres Tunisair")
+
+        self.assertEqual("official_page_link", result["source_used"])
+        self.assertEqual(
+            "https://www.tunisair.com/fr/offres",
+            result["citations"][0]["url"],
+        )
+        self.assertIn(result["citations"][0]["url"], result["answer"])
+
+    def test_live_flight_status_uses_current_page_not_weekly_indexed_data(self):
+        result = workflow.ask("Quel est le statut des vols en cours ?")
+
+        self.assertEqual("live_flight_status", result["source_used"])
+        self.assertIn("peuvent ne plus être à jour", result["answer"])
+        self.assertEqual(
+            "https://www.tunisair.com/fr/vols-en-cours",
+            result["citations"][0]["url"],
+        )
+
     def test_fare_question_routes_to_booking_and_extracts_tunis_montreal(self):
         state = {
             "question": "Quel est le prix du vol Tunis-Montréal ?",
@@ -220,11 +257,18 @@ class TunisairSyncTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.manifest_path = Path(self.temp_dir.name) / "manifest.json"
-        self.settings_patch = patch.object(
-            tunisair_sync.settings, "tunisair_sync_manifest_path", str(self.manifest_path)
+        self.content_db_path = Path(self.temp_dir.name) / "tunisair_content.db"
+        self.settings_patches = (
+            patch.object(
+                tunisair_sync.settings, "tunisair_sync_manifest_path", str(self.manifest_path)
+            ),
+            patch.object(
+                tunisair_sync.settings, "tunisair_content_db_path", str(self.content_db_path)
+            ),
         )
-        self.settings_patch.start()
-        self.addCleanup(self.settings_patch.stop)
+        for settings_patch in self.settings_patches:
+            settings_patch.start()
+            self.addCleanup(settings_patch.stop)
         self.addCleanup(self.temp_dir.cleanup)
 
     def test_sync_uses_manifest_ids_and_ignores_unchanged_pages(self):
@@ -259,6 +303,12 @@ class TunisairSyncTests(unittest.TestCase):
         delete_documents.assert_not_called()
         manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         self.assertIn(page.url, manifest)
+        with closing(sqlite3.connect(self.content_db_path)) as connection, connection:
+            stored = connection.execute(
+                "SELECT title, content_text, fetched_at FROM source_pages WHERE url = ?",
+                (page.url,),
+            ).fetchone()
+        self.assertEqual(("Tunisair", page.text, page.fetched_at), stored)
 
     def test_blocked_fetch_does_not_change_vectors_or_manifest(self):
         with (
@@ -273,6 +323,35 @@ class TunisairSyncTests(unittest.TestCase):
         add_documents.assert_not_called()
         delete_documents.assert_not_called()
         self.assertFalse(self.manifest_path.exists())
+        self.assertFalse(self.content_db_path.exists())
+
+    def test_extracted_text_is_archived_when_vector_sync_is_unavailable(self):
+        page = TunisairPage(
+            url=ALLOWED_PAGE_URLS[0],
+            title="Tunisair",
+            text="Extracted page text",
+            fetched_at="2026-11-11T12:00:00+00:00",
+        )
+        with (
+            patch.object(tunisair_sync, "TunisairCrawler") as crawler,
+            patch.object(
+                tunisair_sync,
+                "add_documents",
+                side_effect=RuntimeError("Ollama unavailable"),
+            ),
+        ):
+            crawler.return_value.fetch_allowed_pages.return_value = [page]
+            with self.assertRaisesRegex(RuntimeError, "Ollama unavailable"):
+                tunisair_sync.sync_tunisair()
+
+        self.assertTrue(self.content_db_path.exists())
+        self.assertFalse(self.manifest_path.exists())
+        with closing(sqlite3.connect(self.content_db_path)) as connection:
+            row = connection.execute(
+                "SELECT content_text FROM source_pages WHERE url = ?",
+                (page.url,),
+            ).fetchone()
+        self.assertEqual((page.text,), row)
 
 
 class PineconeSafetyTests(unittest.TestCase):

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     tunisair_crawl_delay_seconds: float = 1.0
     tunisair_request_timeout_seconds: int = 20
     tunisair_sync_manifest_path: str = str(BASE_DIR / "data" / "tunisair_sync_manifest.json")
+    tunisair_content_db_path: str = str(BASE_DIR / "data" / "tunisair_content.db")
 
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), extra="ignore")
 

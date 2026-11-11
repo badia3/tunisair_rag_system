@@ -8,6 +8,7 @@ from langchain_core.documents import Document
 
 from app.core.config import get_settings
 from app.rag.vectorstore import add_documents, delete_documents
+from app.services.content_store import store_pages
 from app.services.ingestion import chunk_documents
 from app.services.tunisair import TunisairCrawler, TunisairPage
 
@@ -67,15 +68,27 @@ def sync_tunisair() -> dict[str, int]:
     updated = dict(previous)
     indexed_pages = 0
     chunk_count = 0
+    content_hashes: dict[str, str] = {}
+    prepared_pages = []
 
     for page in pages:
         digest, chunks, ids = _chunks_for_page(page)
+        content_hashes[page.url] = digest
+        if not chunks:
+            raise RuntimeError(f"Refusing to index an empty Tunisair page: {page.url}")
+        prepared_pages.append((page, digest, chunks, ids))
+
+    stored_pages = store_pages(
+        Path(settings.tunisair_content_db_path),
+        pages,
+        content_hashes,
+    )
+
+    for page, digest, chunks, ids in prepared_pages:
         old_page = previous.get(page.url, {})
         old_ids = set(old_page.get("vector_ids", []))
         if digest == old_page.get("content_sha256"):
             continue
-        if not chunks:
-            raise RuntimeError(f"Refusing to index an empty Tunisair page: {page.url}")
 
         add_documents(chunks, ids=ids)
         obsolete_ids = sorted(old_ids - set(ids))
@@ -103,4 +116,5 @@ def sync_tunisair() -> dict[str, int]:
         "indexed_pages": indexed_pages,
         "chunks_upserted": chunk_count,
         "unchanged_pages": len(pages) - indexed_pages,
+        "stored_pages": stored_pages,
     }

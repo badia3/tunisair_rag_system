@@ -244,8 +244,26 @@ a { color: inherit; text-decoration: none; }
   font-size: 12px;
   font-weight: 600;
 }
-.field select { appearance: none; cursor: pointer; }
-.field-control:has(select)::after { content: "⌄"; color: #9299a4; font-size: 15px; }
+.field select {
+  appearance: none;
+  cursor: pointer;
+  padding: 8px 26px 8px 2px;
+  border-radius: 3px;
+}
+.field select:focus-visible { outline: 2px solid rgba(200,16,46,.45); outline-offset: 2px; }
+.field-control:has(select)::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin: -4px 2px 0 -24px;
+  border-right: 1.5px solid #737d8b;
+  border-bottom: 1.5px solid #737d8b;
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.field select option { padding: 8px 10px; background: #fff; color: var(--ink); }
+.field select option:checked { background: var(--red); color: #fff; }
 .field input { color-scheme: light; }
 .swap-button {
   width: 33px;

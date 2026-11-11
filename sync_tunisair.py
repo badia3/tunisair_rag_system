@@ -10,7 +10,7 @@ from app.services.tunisair_sync import sync_tunisair
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Sync only the two approved Tunisair French landing pages to Pinecone."
+        description="Sync only the explicitly allowlisted Tunisair French pages."
     )
     parser.add_argument("--dry-run", action="store_true", help="Fetch and count chunks without changing Pinecone.")
     args = parser.parse_args()
@@ -22,7 +22,7 @@ def main() -> int:
                 len(chunk_documents([Document(page_content=page.text)]))
                 for page in pages
             )
-            print(f"Dry run: {len(pages)} allowlisted pages, {chunks} chunks. Pinecone was not changed.")
+            print(f"Dry run: {len(pages)} allowlisted pages, {chunks} chunks. No data was changed.")
             for page in pages:
                 print(f"{page.url} — {page.title}")
             return 0

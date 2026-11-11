@@ -13,6 +13,8 @@ function escapeHtml(s=''){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;
 function formatText(s=''){return escapeHtml(s).replace(/\n/g,'<br>');}
 function sourceLabel(source=''){
   if(source==='kb') return 'Pages de référence';
+  if(source==='official_page_link') return 'Lien de page officielle';
+  if(source==='live_flight_status') return 'Page officielle des vols en cours';
   if(source.startsWith('tunisair_booking')) return 'Réservation de vol';
   return source;
 }

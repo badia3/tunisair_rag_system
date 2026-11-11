@@ -1,9 +1,9 @@
 # Tunisair Information Agentic RAG Assistant
 
-An Agentic RAG assistant for Tunisair. The crawler fetches only the two explicitly
-allowlisted French landing pages, stores their text in Pinecone, and cites the page URLs.
-Timetable questions create a validated, prefilled link to Tunisair's booking site; the
-booking site itself is never crawled or fetched.
+An Agentic RAG assistant for Tunisair. The crawler fetches only explicitly allowlisted
+French pages, stores full extracted text in local SQLite and searchable chunks in Pinecone,
+and cites the source URLs. Timetable questions create a validated, prefilled booking link;
+the booking site itself is never crawled or fetched.
 
 ---
 
@@ -12,8 +12,15 @@ booking site itself is never crawled or fetched.
 ### Information sources
 
 - `https://www.tunisair.com/fr`
+- `https://www.tunisair.com/fr/offres`
+- `https://www.tunisair.com/fr/vols-en-cours`
 - `https://flights.tunisair.com/fr`
 - Timetable link generation for `book.tunisair.com`, shown to the user without automated access.
+
+The flight search form uses the 49 city/airport codes currently listed in the official
+Tunisair flight-status page. The source list is defined once in `app/services/airports.py`
+and shared with the web template and question router so displayed cities and parsed codes
+stay aligned.
 
 ### Example
 An employee asks:
@@ -99,7 +106,8 @@ This repository demonstrates each layer.
                ▼                             ▼
        ┌───────────────┐              ┌──────────────┐
        │ Allowed pages │              │ Booking link │
-       │ Pinecone      │              │ (user opens) │
+       │ SQLite +      │              │ (user opens) │
+       │ Pinecone      │              │              │
        └───────┬───────┘              └──────┬───────┘
                │                             │
                └──────────────┬──────────────┘
@@ -131,7 +139,7 @@ Question
    │
    └── Tunisair information question
                 ↓
-[2] Retrieve from the two allowlisted pages in Pinecone
+[2] Retrieve from the allowlisted pages in Pinecone
                 ↓
 [3] Grade Tunisair page evidence
        ┌────────┴────────┐
@@ -176,7 +184,8 @@ The system therefore controls **what to do next** based on its current state.
 | Agent workflow | LangGraph | Stateful routing and conditional decisions |
 | LLM | Ollama `llama3.2` | Routing, grading, rewriting, answer generation |
 | Embeddings | Ollama `nomic-embed-text` | 768-dimensional embeddings |
-| Vector DB | Pinecone | Indexed allowlisted Tunisair page text |
+| Vector DB | Pinecone | Searchable chunks from allowlisted Tunisair pages |
+| Page archive | SQLite | Full extracted text and sync timestamps |
 | API | FastAPI | Backend and REST endpoints |
 | Frontend | HTML/CSS/JavaScript | Employee-facing interface |
 | Audit | SQLite | Basic decision-path logging |
@@ -204,6 +213,7 @@ FDE_Agentic_RAG_IT_Copilot/
 │   │
 │   ├── services/
 │   │   ├── audit.py               # SQLite query audit
+│   │   ├── content_store.py       # Durable extracted-page SQLite storage
 │   │   ├── ingestion.py           # Text chunking
 │   │   ├── tunisair.py            # Fixed-URL crawler and timetable-link builder
 │   │   └── tunisair_sync.py       # Incremental Pinecone sync
@@ -211,6 +221,8 @@ FDE_Agentic_RAG_IT_Copilot/
 │   └── main.py                    # FastAPI application
 │
 ├── sync_tunisair.py               # Allowed-page dry run and sync
+├── setup_weekly_sync.ps1          # Register weekly Windows sync task
+├── run_weekly_sync.ps1            # Scheduled sync runner and log
 │
 ├── static/
 │   ├── css/style.css
@@ -309,18 +321,34 @@ python sync_tunisair.py --dry-run
 python sync_tunisair.py
 ```
 
-The crawler requests exactly these URLs and does not follow page links:
+The crawler requests exactly these URLs and does not discover or follow other page links:
 
 ```text
 https://www.tunisair.com/fr
+https://www.tunisair.com/fr/offres
+https://www.tunisair.com/fr/vols-en-cours
 https://flights.tunisair.com/fr
 ```
+
+The full extracted text is stored in `data/tunisair_content.db`; searchable chunks and
+metadata are stored in Pinecone. The content database is excluded from Git. The sync
+updates changed pages and removes stale chunks; a dry run makes no data changes.
 
 `book.tunisair.com` disallows automated crawling in its `robots.txt`. The app never
 fetches that host. For timetable questions, it validates explicit three-letter route codes
 and ISO round-trip dates, builds the official prefilled link, and asks the user to open it.
 If an allowlisted page returns a CAPTCHA, HTTP 403, 421, or 429, the sync stops without
 retrying or changing the Pinecone index.
+
+On Windows, register the weekly sync task with:
+
+```powershell
+.\setup_weekly_sync.ps1
+```
+
+It runs Sundays at 03:00 when the current Windows user is signed in. Review
+`data/tunisair_sync.log` and the task's Last Run Result in Task Scheduler. Run
+`.\run_weekly_sync.ps1` to sync manually and log the result.
 
 ### Step 5 — Run the application
 
@@ -387,25 +415,19 @@ Teaching point:
 
 ---
 
-### Demo C — Weak evidence
+### Demo C — Current fares
 
 Ask:
 
 > **What are Tunisair's current fares?**
 
-The app must not guess current prices; its indexed landing pages are insufficient.
-
-```text
-Router → KB
-Retrieve approved Tunisair pages
-KB Grade → WEAK
-Rewrite and retry once
-Insufficient evidence
-```
+The app must not invent a current price. It directs the user to the official flight planner
+to select travel dates and see the live fare. Other questions about offers and page content
+are answered from indexed evidence where available.
 
 Teaching point:
 
-> RAG must refuse unsupported, changing fare data.
+> Time-sensitive fares must be checked on the official booking page.
 
 ---
 
@@ -413,7 +435,7 @@ Teaching point:
 
 Ask a deliberately vague question such as:
 
-> **Tell me about a Tunisair topic not covered by the two approved pages.**
+> **Tell me about a Tunisair topic not covered by the approved pages.**
 
 If the approved page evidence is weak, the workflow rewrites once and retries that same index.
 
@@ -444,10 +466,11 @@ Teaching point:
 
 ## 9. Sync behavior
 
-Run `python sync_tunisair.py` whenever you want to refresh the allowed pages. The local
-`data/tunisair_sync_manifest.json` contains only page URLs, hashes, and vector IDs; it
-does not store fetched page text. Keep this manifest between runs so changed pages can be
-updated and stale chunks removed safely.
+Run `python sync_tunisair.py` to refresh the allowed pages manually. The local
+`data/tunisair_sync_manifest.json` tracks page hashes and vector IDs. Full extracted text
+is stored separately in `data/tunisair_content.db`; keep both files between runs. On the
+weekly schedule, only changed page content is re-indexed. If a page is denied or returns a
+CAPTCHA, sync stops without retrying or updating stored data.
 
 ---
 

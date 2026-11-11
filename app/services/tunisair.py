@@ -17,6 +17,8 @@ settings = get_settings()
 USER_AGENT = "TunisairRAGAssistant/1.0"
 ALLOWED_PAGE_URLS = (
     "https://www.tunisair.com/fr",
+    "https://www.tunisair.com/fr/offres",
+    "https://www.tunisair.com/fr/vols-en-cours",
     "https://flights.tunisair.com/fr",
 )
 BOOKING_HOST = "book.tunisair.com"
@@ -80,7 +82,7 @@ class _PageParser(HTMLParser):
 
 
 class TunisairCrawler:
-    """Fetches only the two explicitly allowed, fixed Tunisair landing pages."""
+    """Fetches only the explicitly allowlisted, fixed Tunisair pages."""
 
     def __init__(self):
         self._robots: dict[str, RobotFileParser] = {}
@@ -95,8 +97,8 @@ class TunisairCrawler:
         parsed = urlsplit(url)
         if url not in ALLOWED_PAGE_URLS:
             raise ValueError(f"Refusing to fetch a URL outside the Tunisair allowlist: {url}")
-        if parsed.path != "/fr" or parsed.query or parsed.fragment:
-            raise ValueError(f"Refusing to fetch a non-allowlisted Tunisair route: {url}")
+        if parsed.query or parsed.fragment:
+            raise ValueError(f"Refusing to fetch a Tunisair URL with query or fragment: {url}")
 
         delay = max(0.0, settings.tunisair_crawl_delay_seconds)
         remaining = delay - (time.monotonic() - self._last_request_at)
