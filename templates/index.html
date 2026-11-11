@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#assistant" aria-label="Your Flight Support Bot System">
+      <span class="brand-mark" aria-hidden="true">F</span>
+      <span class="brand-name">YOUR FLIGHT<small>SUPPORT BOT SYSTEM</small></span>
+    </a>
+    <nav class="main-nav" aria-label="Navigation principale">
+      <a class="nav-link active" href="#assistant">Accueil</a>
+      <a class="nav-link" href="https://www.tunisair.com/fr" target="_blank" rel="noopener noreferrer">Informations de voyage</a>
+      <a class="nav-link" href="https://flights.tunisair.com/fr" target="_blank" rel="noopener noreferrer">Vols en cours</a>
+    </nav>
+    <a class="header-cta" href="#flight-search">Préparer mon voyage <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-orbit orbit-one"></div>
+      <div class="hero-orbit orbit-two"></div>
+      <div class="hero-content">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> VOTRE ASSISTANT DE VOYAGE</div>
+        <h1>La Tunisie<br/>vous <span>emmène</span> plus loin.</h1>
+        <p>Préparez votre prochain voyage et retrouvez des informations de voyage vérifiées avec votre assistant.</p>
+        <a class="hero-link" href="#flight-search">Découvrir les options de voyage <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="hero-stamp" aria-hidden="true">
+        <span class="stamp-top">DEPUIS</span>
+        <strong>TUNIS</strong>
+        <span class="stamp-bottom">VERS LE MONDE</span>
+      </div>
+      <div class="hero-tail" aria-hidden="true">FLIGHT SUPPORT BOT SYSTEM <span>✦</span> À VOTRE SERVICE</div>
+    </section>
+
+    <div class="content-wrap">
+      <section class="booking-card" id="flight-search" aria-labelledby="booking-title">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">VOTRE PROCHAIN DÉPART</div>
+            <h2 id="booking-title">Où souhaitez-vous aller ?</h2>
+          </div>
+          <span class="round-trip"><span aria-hidden="true">↔</span> Aller-retour</span>
+        </div>
+        <form id="flightSearchForm" class="flight-form">
+          <label class="field">
+            <span>Départ</span>
+            <span class="field-control"><span class="field-icon" aria-hidden="true">⌖</span>
+              <select id="originCode" required aria-label="Ville de départ">
+                <option value="TUN">Tunis (TUN)</option>
+                <option value="DJE">Djerba (DJE)</option>
+                <option value="MIR">Monastir (MIR)</option>
+                <option value="PAR">Paris (PAR)</option>
+                <option value="LYS">Lyon (LYS)</option>
+                <option value="MRS">Marseille (MRS)</option>
+                <option value="BCN">Barcelone (BCN)</option>
+                <option value="YUL">Montréal (YUL)</option>
+              </select>
+            </span>
+          </label>
+          <button id="swapRoute" class="swap-button" type="button" aria-label="Inverser départ et destination">⇄</button>
+          <label class="field">
+            <span>Destination</span>
+            <span class="field-control"><span class="field-icon" aria-hidden="true">⌖</span>
+              <select id="destinationCode" required aria-label="Ville de destination">
+                <option value="PAR">Paris (PAR)</option>
+                <option value="TUN">Tunis (TUN)</option>
+                <option value="DJE">Djerba (DJE)</option>
+                <option value="MIR">Monastir (MIR)</option>
+                <option value="LYS">Lyon (LYS)</option>
+                <option value="MRS">Marseille (MRS)</option>
+                <option value="BCN">Barcelone (BCN)</option>
+                <option value="YUL">Montréal (YUL)</option>
+              </select>
+            </span>
+          </label>
+          <label class="field date-field">
+            <span>Aller</span>
+            <span class="field-control"><span class="field-icon" aria-hidden="true">▦</span>
+              <input id="departureDate" type="date" required aria-label="Date de départ" />
+            </span>
+          </label>
+          <label class="field date-field">
+            <span>Retour</span>
+            <span class="field-control"><span class="field-icon" aria-hidden="true">▦</span>
+              <input id="returnDate" type="date" required aria-label="Date de retour" />
+            </span>
+          </label>
+          <button class="search-button" type="submit"><span aria-hidden="true">⌕</span> Rechercher</button>
+        </form>
+        <p class="booking-note"><span aria-hidden="true">ⓘ</span> Les disponibilités et les tarifs sont confirmés sur le site de réservation partenaire.</p>
+      </section>
+
+      <section class="assistant-section" id="assistant">
+        <div class="assistant-intro">
+          <div class="section-kicker">À VOTRE ÉCOUTE</div>
+          <h2>Votre assistant<br/>de voyage.</h2>
+          <p>Une question sur votre voyage ? Consultez les informations disponibles sur les pages de référence.</p>
+          <div class="trust-note"><span class="trust-icon" aria-hidden="true">✓</span><span><strong>Des réponses sourcées</strong><br/>Consultez les liens officiels affichés avec les réponses.</span></div>
+          <a class="official-link" href="https://www.tunisair.com/fr" target="_blank" rel="noopener noreferrer">Consulter les informations de voyage <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <div class="assistant-card">
+          <div class="assistant-card-head">
+            <div class="assistant-avatar" aria-hidden="true">F</div>
+            <div><strong>Your Flight Support Bot System</strong><span><i></i> À votre service</span></div>
+            <span class="online-label">EN LIGNE</span>
+          </div>
+          <section id="chat" class="chat-area" aria-live="polite">
+            <div class="message assistant">
+              <div class="avatar" aria-hidden="true">F</div>
+              <div class="bubble">
+                <strong>Bonjour, bienvenue !</strong>
+                <p>Comment puis-je vous aider à préparer votre voyage ?</p>
+              </div>
+            </div>
+          </section>
+          <div class="suggestions" aria-label="Questions suggérées">
+            <button class="example" type="button">Quelles informations de voyage sont disponibles ?</button>
+            <button class="example" type="button">Comment consulter les vols en cours ?</button>
+            <button class="example" type="button">Comment vérifier les tarifs ?</button>
+          </div>
+          <form id="chatForm" class="composer">
+            <textarea id="question" rows="1" placeholder="Écrivez votre question..." required aria-label="Votre question"></textarea>
+            <button type="submit" class="send-btn" aria-label="Envoyer la question">Envoyer <span aria-hidden="true">↑</span></button>
+          </form>
+          <details class="trace-details">
+            <summary>Détails de la réponse</summary>
+            <div id="trace" class="trace-list"><div class="empty">Aucune demande pour le moment.</div></div>
+            <div class="source-box"><span>Source utilisée</span><strong id="sourceUsed">—</strong></div>
+          </details>
+          <p class="assistant-disclaimer">Les informations de vol et les tarifs doivent être confirmés sur le site officiel.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <a class="brand footer-brand" href="#assistant" aria-label="Your Flight Support Bot System">
+      <span class="brand-mark" aria-hidden="true">F</span><span class="brand-name">YOUR FLIGHT<small>SUPPORT BOT SYSTEM</small></span>
+    </a>
+    <span>Voyagez en toute sérénité.</span>
+    <a href="https://www.tunisair.com/fr" target="_blank" rel="noopener noreferrer">Informations de voyage <span aria-hidden="true">↗</span></a>
+  </footer>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
