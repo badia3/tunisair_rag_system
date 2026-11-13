@@ -1,0 +1,48 @@
+name: Sync Tunisair knowledge base
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tunisair-knowledge-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore sync state
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/tunisair_sync_manifest.json
+            data/tunisair_content.db
+          key: tunisair-sync-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            tunisair-sync-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Sync allowlisted pages to Pinecone
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EMBEDDING_PROVIDER: openai
+          OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          PINECONE_INDEX_NAME: tunisair-rag-openai-1536
+          PINECONE_NAMESPACE: tunisair-fr
+        run: python sync_tunisair.py

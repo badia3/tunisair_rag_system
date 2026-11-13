@@ -226,3 +226,4 @@ data/tunisair_sync.log
 run_weekly_sync.ps1
 setup_weekly_sync.ps1
 docs/
+_site/

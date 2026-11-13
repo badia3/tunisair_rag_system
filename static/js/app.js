@@ -8,6 +8,13 @@ const originCode = document.getElementById('originCode');
 const destinationCode = document.getElementById('destinationCode');
 const departureDate = document.getElementById('departureDate');
 const returnDate = document.getElementById('returnDate');
+const appConfig = window.APP_CONFIG || {};
+
+function chatApiUrl(){
+  if(!appConfig.staticPages) return '/api/chat';
+  const apiBaseUrl=(appConfig.apiBaseUrl||'').replace(/\/+$/,'');
+  return apiBaseUrl?`${apiBaseUrl}/api/chat`:'';
+}
 
 function escapeHtml(s=''){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 function formatText(s=''){return escapeHtml(s).replace(/\n/g,'<br>');}
@@ -29,7 +36,9 @@ async function askAgent(q){
   addMessage('user',q); question.value=''; renderTrace(['Traitement de votre demande...']); sourceUsed.textContent='En cours';
   const btn=form.querySelector('button'); btn.disabled=true;
   try{
-    const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const endpoint=chatApiUrl();
+    if(!endpoint) throw new Error('Le service de chat n’est pas encore configuré. Réessayez plus tard.');
+    const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
     const data=await res.json(); if(!res.ok) throw new Error(data.detail||'La demande a échoué.');
     addMessage('assistant',data.answer,data.source_used,data.citations||[]); renderTrace(data.trace||[]); sourceUsed.textContent=sourceLabel(data.source_used);
   }catch(e){addMessage('assistant',`Désolé, une erreur est survenue : ${e.message}`); renderTrace(['La demande a échoué']); sourceUsed.textContent='Erreur';}

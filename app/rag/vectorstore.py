@@ -1,6 +1,7 @@
 import time
 from pinecone import Pinecone , ServerlessSpec
 from langchain_ollama import OllamaEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from app.core.config import get_settings
 
@@ -21,8 +22,16 @@ EMBEDDING_DIMENSIONS = {
 
 
 
+def _configured_embedding_model() -> str:
+    if settings.embedding_provider == "openai":
+        return settings.openai_embedding_model
+    if settings.embedding_provider == "ollama":
+        return settings.embedding_model
+    raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {settings.embedding_provider}")
+
+
 def get_embedding_dimension(model_name: str | None = None) -> int:
-    name = (model_name or settings.embedding_model or "").strip()
+    name = (model_name or _configured_embedding_model() or "").strip()
     if not name:
         raise RuntimeError("Embedding model is not configured")
 
@@ -39,7 +48,7 @@ def get_embedding_dimension(model_name: str | None = None) -> int:
         return 384
 
     raise ValueError(
-        f"Unsupported embedding model '{model_name or settings.embedding_model}' for Pinecone. "
+        f"Unsupported embedding model '{name}' for Pinecone. "
         "Add the matching dimension to EMBEDDING_DIMENSIONS."
     )
 
@@ -50,10 +59,24 @@ def get_embeddings():
     global _embeddings
 
     if _embeddings is None:
-        _embeddings = OllamaEmbeddings(
-            model=settings.embedding_model,
-            base_url=settings.ollama_base_url,
-        )
+        if settings.embedding_provider == "ollama":
+            _embeddings = OllamaEmbeddings(
+                model=settings.embedding_model,
+                base_url=settings.ollama_base_url,
+            )
+        elif settings.embedding_provider == "openai":
+            if not settings.openai_api_key:
+                raise RuntimeError(
+                    "OPENAI_API_KEY is required when EMBEDDING_PROVIDER is set to openai"
+                )
+            _embeddings = OpenAIEmbeddings(
+                model=settings.openai_embedding_model,
+                api_key=settings.openai_api_key,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported EMBEDDING_PROVIDER: {settings.embedding_provider}"
+            )
 
     return _embeddings
 
@@ -66,7 +89,8 @@ def ensure_index():
         raise RuntimeError("PINECONE_API_KEY is missing")
 
     desired_dimension = get_embedding_dimension()
-    print(f"Embedding model: {settings.embedding_model}")
+    embedding_model = _configured_embedding_model()
+    print(f"Embedding model: {embedding_model}")
     print(f"Desired dimension: {desired_dimension}")
     print(f"Pinecone index: {settings.pinecone_index_name}")
     pc = Pinecone(api_key=settings.pinecone_api_key)

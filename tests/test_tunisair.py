@@ -5,6 +5,7 @@ import unittest
 from contextlib import closing
 from email.message import Message
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
@@ -12,6 +13,7 @@ from unittest.mock import Mock, patch
 
 from langchain_core.documents import Document
 
+from build_pages import build_site
 from app.rag import vectorstore
 from app.rag import workflow
 from app.rag.state import EvidenceGrade, RouteDecision
@@ -129,6 +131,94 @@ class TunisairAllowlistTests(unittest.TestCase):
         self.assertEqual("tunisair_booking_link", result["source_used"])
         self.assertEqual(BOOKING_HOST, urlsplit(result["citations"][0]["url"]).hostname)
         self.assertIn("booking site not fetched", result["trace"][0])
+
+
+class LLMProviderTests(unittest.TestCase):
+    def test_openai_provider_uses_configured_model_and_api_key(self):
+        config = SimpleNamespace(
+            llm_provider="openai",
+            openai_api_key="test-key",
+            openai_chat_model="gpt-4o-mini",
+        )
+        with (
+            patch.object(workflow, "settings", config),
+            patch.object(workflow, "_llm", None),
+            patch.object(workflow, "ChatOpenAI") as chat_openai,
+        ):
+            result = workflow.llm()
+
+        chat_openai.assert_called_once_with(
+            model="gpt-4o-mini",
+            api_key="test-key",
+            temperature=0,
+        )
+        self.assertIs(result, chat_openai.return_value)
+
+    def test_openai_provider_requires_api_key(self):
+        config = SimpleNamespace(
+            llm_provider="openai",
+            openai_api_key="",
+            openai_chat_model="gpt-4o-mini",
+        )
+        with (
+            patch.object(workflow, "settings", config),
+            patch.object(workflow, "_llm", None),
+            patch.object(workflow, "ChatOpenAI") as chat_openai,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY is required"):
+                workflow.llm()
+
+        chat_openai.assert_not_called()
+
+    def test_ollama_remains_the_default_provider(self):
+        config = SimpleNamespace(
+            llm_provider="ollama",
+            ollama_chat_model="llama3.2",
+            ollama_base_url="http://localhost:11434",
+        )
+        with (
+            patch.object(workflow, "settings", config),
+            patch.object(workflow, "_llm", None),
+            patch.object(workflow, "ChatOllama") as chat_ollama,
+        ):
+            result = workflow.llm()
+
+        chat_ollama.assert_called_once_with(
+            model="llama3.2",
+            base_url="http://localhost:11434",
+            temperature=0,
+        )
+        self.assertIs(result, chat_ollama.return_value)
+
+
+class GitHubPagesBuildTests(unittest.TestCase):
+    def test_build_renders_template_and_static_assets_for_pages_subpath(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            build_site(output_dir, "https://api.example.com/")
+
+            html = (output_dir / "index.html").read_text(encoding="utf-8")
+            self.assertIn('href="static/css/style.css"', html)
+            self.assertIn('src="static/js/app.js"', html)
+            self.assertIn('"apiBaseUrl": "https://api.example.com"', html)
+            self.assertIn('"staticPages": true', html)
+            self.assertTrue((output_dir / "static" / "css" / "style.css").exists())
+            self.assertTrue((output_dir / "static" / "js" / "app.js").exists())
+
+    def test_build_rejects_non_https_api_url(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "must be an HTTPS base URL"):
+                build_site(Path(temp_dir), "http://api.example.com")
+
+    def test_build_without_backend_url_keeps_static_page_available(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            build_site(output_dir)
+
+            html = (output_dir / "index.html").read_text(encoding="utf-8")
+            app_js = (output_dir / "static" / "js" / "app.js").read_text(encoding="utf-8")
+            self.assertIn('"apiBaseUrl": ""', html)
+            self.assertIn("Le service de chat n’est pas encore configuré", app_js)
 
 
 class WorkflowStructuredOutputTests(unittest.TestCase):
@@ -376,6 +466,53 @@ class PineconeSafetyTests(unittest.TestCase):
                 vectorstore.ensure_index()
 
         pinecone.return_value.delete_index.assert_not_called()
+
+    def test_openai_embedding_provider_uses_configured_model_and_key(self):
+        with (
+            patch.object(vectorstore.settings, "embedding_provider", "openai"),
+            patch.object(vectorstore.settings, "openai_embedding_model", "text-embedding-3-small"),
+            patch.object(vectorstore.settings, "openai_api_key", "test-key"),
+            patch.object(vectorstore, "_embeddings", None),
+            patch.object(vectorstore, "OpenAIEmbeddings") as openai_embeddings,
+        ):
+            result = vectorstore.get_embeddings()
+            dimension = vectorstore.get_embedding_dimension()
+
+        openai_embeddings.assert_called_once_with(
+            model="text-embedding-3-small",
+            api_key="test-key",
+        )
+        self.assertIs(result, openai_embeddings.return_value)
+        self.assertEqual(1536, dimension)
+
+    def test_openai_embedding_provider_requires_api_key(self):
+        with (
+            patch.object(vectorstore.settings, "embedding_provider", "openai"),
+            patch.object(vectorstore.settings, "openai_api_key", ""),
+            patch.object(vectorstore, "_embeddings", None),
+            patch.object(vectorstore, "OpenAIEmbeddings") as openai_embeddings,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY is required"):
+                vectorstore.get_embeddings()
+
+        openai_embeddings.assert_not_called()
+
+    def test_ollama_embedding_provider_remains_the_default(self):
+        with (
+            patch.object(vectorstore.settings, "embedding_provider", "ollama"),
+            patch.object(vectorstore.settings, "embedding_model", "nomic-embed-text"),
+            patch.object(vectorstore.settings, "ollama_base_url", "http://localhost:11434"),
+            patch.object(vectorstore, "_embeddings", None),
+            patch.object(vectorstore, "OllamaEmbeddings") as ollama_embeddings,
+        ):
+            result = vectorstore.get_embeddings()
+
+        ollama_embeddings.assert_called_once_with(
+            model="nomic-embed-text",
+            base_url="http://localhost:11434",
+        )
+        self.assertIs(result, ollama_embeddings.return_value)
+        self.assertEqual(768, vectorstore.get_embedding_dimension())
 
 
 if __name__ == "__main__":

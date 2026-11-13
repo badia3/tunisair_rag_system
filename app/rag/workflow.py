@@ -3,6 +3,7 @@ import re
 import unicodedata
 from datetime import date
 from typing import Literal
+from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from app.core.config import get_settings
@@ -19,11 +20,24 @@ _llm = None
 def llm():
     global _llm
     if _llm is None:
-        _llm = ChatOllama(
-            model=settings.ollama_chat_model,
-            base_url=settings.ollama_base_url,
-            temperature=0,
-        )
+        if settings.llm_provider == "ollama":
+            _llm = ChatOllama(
+                model=settings.ollama_chat_model,
+                base_url=settings.ollama_base_url,
+                temperature=0,
+            )
+        elif settings.llm_provider == "openai":
+            if not settings.openai_api_key:
+                raise RuntimeError(
+                    "OPENAI_API_KEY is required when LLM_PROVIDER is set to openai"
+                )
+            _llm = ChatOpenAI(
+                model=settings.openai_chat_model,
+                api_key=settings.openai_api_key,
+                temperature=0,
+            )
+        else:
+            raise ValueError(f"Unsupported LLM_PROVIDER: {settings.llm_provider}")
     return _llm
 
 def add_trace(state: AgentState, message: str):

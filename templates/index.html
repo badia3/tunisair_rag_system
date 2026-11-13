@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ app_name }}</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="static/css/style.css" />
 </head>
 <body>
   <header class="site-header">
@@ -137,6 +137,9 @@
     <span>Voyagez en toute sérénité.</span>
     <a href="https://www.tunisair.com/fr" target="_blank" rel="noopener noreferrer">Informations de voyage <span aria-hidden="true">↗</span></a>
   </footer>
-  <script src="/static/js/app.js"></script>
+  <script>
+    window.APP_CONFIG = {{ {"apiBaseUrl": api_base_url, "staticPages": static_pages}|tojson }};
+  </script>
+  <script src="static/js/app.js"></script>
 </body>
 </html>
